@@ -36,10 +36,6 @@ struct Args {
     /// Cluster to connect to (mainnet/testnet/devnet or custom RPC URL)
     #[arg(short, long, default_value = "mainnet")]
     cluster: String,
-
-    /// RPC URL (overrides --cluster if provided)
-    #[arg(short, long)]
-    rpc_url: Option<String>,
 }
 
 #[derive(Debug)]
@@ -58,13 +54,13 @@ struct WalletInfo {
 struct App {
     state: AppState,
     selected_menu_item: usize,
-    wallet: Option<WalletInfo>,
+    wallet: WalletInfo,
     rpc_client: Arc<RpcClient>,
     rpc_url: String,
 }
 
 impl App {
-    fn new(wallet: Option<WalletInfo>, rpc_client: Arc<RpcClient>, rpc_url: String) -> Self {
+    fn new(wallet: WalletInfo, rpc_client: Arc<RpcClient>, rpc_url: String) -> Self {
         Self {
             state: AppState::Home,
             selected_menu_item: 0,
@@ -75,12 +71,10 @@ impl App {
     }
     
     async fn refresh_balance(&mut self) -> Result<()> {
-        if let Some(ref mut wallet_info) = self.wallet {
-            let balance = self.rpc_client
-                .get_balance(&wallet_info.address)
-                .context("Failed to fetch balance")?;
-            wallet_info.balance = balance as f64 / 1_000_000_000.0; // Convert lamports to SOL
-        }
+        let balance = self.rpc_client
+            .get_balance(&self.wallet.address)
+            .context("Failed to fetch balance")?;
+        self.wallet.balance = balance as f64 / 1_000_000_000.0; // Convert lamports to SOL
         Ok(())
     }
 }
@@ -96,12 +90,7 @@ fn load_keypair(path: &PathBuf) -> Result<Keypair> {
         .with_context(|| format!("Invalid keypair in file: {}", path.display()))
 }
 
-fn resolve_rpc_url(cluster: &str, rpc_url_override: Option<String>) -> String {
-    // If explicit RPC URL is provided, use it
-    if let Some(url) = rpc_url_override {
-        return url;
-    }
-    
+fn resolve_rpc_url(cluster: &str) -> String {
     // Check if cluster is a known preset or a custom URL
     match cluster.to_lowercase().as_str() {
         "mainnet" | "mainnet-beta" => "https://api.mainnet-beta.solana.com".to_string(),
@@ -137,25 +126,25 @@ async fn main() -> Result<()> {
         default_path
     };
     
-    // Try to load the keypair
-    let wallet_info = match load_keypair(&keypair_path) {
-        Ok(keypair) => {
-            let address = keypair.pubkey();
-            eprintln!("Loaded wallet: {}", address);
-            Some(WalletInfo {
-                address,
-                balance: 0.0,
-            })
-        }
-        Err(e) => {
-            eprintln!("Warning: Could not load keypair: {}", e);
-            eprintln!("Running in read-only mode.");
-            None
-        }
+    // Load the keypair (required)
+    let keypair = load_keypair(&keypair_path)
+        .with_context(|| {
+            format!("Failed to load keypair from {}. 
+Please ensure the file exists and contains a valid Solana keypair.
+You can create one with: solana-keygen new -o {}", 
+                keypair_path.display(), keypair_path.display())
+        })?;
+    
+    let address = keypair.pubkey();
+    eprintln!("Loaded wallet: {}", address);
+    
+    let wallet_info = WalletInfo {
+        address,
+        balance: 0.0,
     };
     
-    // Resolve RPC URL from cluster or explicit URL
-    let rpc_url = resolve_rpc_url(&args.cluster, args.rpc_url);
+    // Resolve RPC URL from cluster
+    let rpc_url = resolve_rpc_url(&args.cluster);
     eprintln!("Connecting to RPC: {}", rpc_url);
     
     // Create RPC client
@@ -173,10 +162,8 @@ async fn main() -> Result<()> {
 
     let mut app = App::new(wallet_info, rpc_client, rpc_url);
     
-    // Get initial balance if wallet is loaded
-    if app.wallet.is_some() {
-        let _ = app.refresh_balance().await;
-    }
+    // Get initial balance
+    let _ = app.refresh_balance().await;
     
     let res = run_app(&mut terminal, app).await;
 
@@ -296,25 +283,14 @@ fn render_home() -> Paragraph<'static> {
 }
 
 fn render_wallet(app: &App) -> Paragraph<'static> {
-    let lines = if let Some(ref wallet) = app.wallet {
-        vec![
-            Line::from("Wallet Overview"),
-            Line::from(""),
-            Line::from(format!("Address: {}", wallet.address)),
-            Line::from(format!("Balance: {:.9} SOL", wallet.balance)),
-            Line::from(""),
-            Line::from("Press 'r' to refresh balance"),
-        ]
-    } else {
-        vec![
-            Line::from("Wallet Overview"),
-            Line::from(""),
-            Line::from("No wallet loaded"),
-            Line::from(""),
-            Line::from("Run with --keypair <path> to load a wallet"),
-            Line::from("Or create ~/.config/solana/id.json"),
-        ]
-    };
+    let lines = vec![
+        Line::from("Wallet Overview"),
+        Line::from(""),
+        Line::from(format!("Address: {}", app.wallet.address)),
+        Line::from(format!("Balance: {:.9} SOL", app.wallet.balance)),
+        Line::from(""),
+        Line::from("Press 'r' to refresh balance"),
+    ];
     
     Paragraph::new(lines)
         .style(Style::default().fg(Color::Green))
@@ -350,11 +326,7 @@ fn render_settings(app: &App) -> Paragraph<'static> {
         Line::from(format!("RPC Endpoint: {}", app.rpc_url)),
         Line::from(format!("Network: {}", network)),
         Line::from(""),
-        if app.wallet.is_some() {
-            Line::from("Wallet: Loaded ✓")
-        } else {
-            Line::from("Wallet: Not loaded")
-        },
+        Line::from(format!("Wallet: {}", app.wallet.address)),
     ])
     .style(Style::default().fg(Color::Magenta))
     .block(Block::default().borders(Borders::ALL).title("Settings"))
