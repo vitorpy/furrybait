@@ -33,9 +33,13 @@ struct Args {
     #[arg(short, long)]
     keypair: Option<PathBuf>,
 
-    /// RPC URL (defaults to mainnet)
-    #[arg(short, long, default_value = "https://api.mainnet-beta.solana.com")]
-    rpc_url: String,
+    /// Cluster to connect to (mainnet/testnet/devnet or custom RPC URL)
+    #[arg(short, long, default_value = "mainnet")]
+    cluster: String,
+
+    /// RPC URL (overrides --cluster if provided)
+    #[arg(short, long)]
+    rpc_url: Option<String>,
 }
 
 #[derive(Debug)]
@@ -92,6 +96,30 @@ fn load_keypair(path: &PathBuf) -> Result<Keypair> {
         .with_context(|| format!("Invalid keypair in file: {}", path.display()))
 }
 
+fn resolve_rpc_url(cluster: &str, rpc_url_override: Option<String>) -> String {
+    // If explicit RPC URL is provided, use it
+    if let Some(url) = rpc_url_override {
+        return url;
+    }
+    
+    // Check if cluster is a known preset or a custom URL
+    match cluster.to_lowercase().as_str() {
+        "mainnet" | "mainnet-beta" => "https://api.mainnet-beta.solana.com".to_string(),
+        "testnet" => "https://api.testnet.solana.com".to_string(),
+        "devnet" => "https://api.devnet.solana.com".to_string(),
+        "localhost" | "localnet" => "http://localhost:8899".to_string(),
+        // If not a preset, assume it's a custom RPC URL
+        custom => {
+            // Add https:// if no protocol is specified
+            if custom.starts_with("http://") || custom.starts_with("https://") {
+                custom.to_string()
+            } else {
+                format!("https://{}", custom)
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -126,9 +154,13 @@ async fn main() -> Result<()> {
         }
     };
     
+    // Resolve RPC URL from cluster or explicit URL
+    let rpc_url = resolve_rpc_url(&args.cluster, args.rpc_url);
+    eprintln!("Connecting to RPC: {}", rpc_url);
+    
     // Create RPC client
     let rpc_client = Arc::new(RpcClient::new_with_commitment(
-        args.rpc_url.clone(),
+        rpc_url.clone(),
         CommitmentConfig::confirmed(),
     ));
     
@@ -139,7 +171,7 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(wallet_info, rpc_client, args.rpc_url);
+    let mut app = App::new(wallet_info, rpc_client, rpc_url);
     
     // Get initial balance if wallet is loaded
     if app.wallet.is_some() {
@@ -300,11 +332,23 @@ fn render_transactions() -> Paragraph<'static> {
 }
 
 fn render_settings(app: &App) -> Paragraph<'static> {
+    let network = if app.rpc_url.contains("mainnet") {
+        "Mainnet Beta"
+    } else if app.rpc_url.contains("testnet") {
+        "Testnet"
+    } else if app.rpc_url.contains("devnet") {
+        "Devnet"
+    } else if app.rpc_url.contains("localhost") || app.rpc_url.contains("127.0.0.1") {
+        "Localnet"
+    } else {
+        "Custom"
+    };
+    
     Paragraph::new(vec![
         Line::from("Settings"),
         Line::from(""),
         Line::from(format!("RPC Endpoint: {}", app.rpc_url)),
-        Line::from("Network: Mainnet Beta"),
+        Line::from(format!("Network: {}", network)),
         Line::from(""),
         if app.wallet.is_some() {
             Line::from("Wallet: Loaded ✓")
