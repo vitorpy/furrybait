@@ -15,6 +15,7 @@ use ratatui::{
     Frame, Terminal,
 };
 use solana_client::rpc_client::RpcClient;
+#[allow(deprecated)]
 use solana_sdk::system_instruction;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -355,7 +356,7 @@ async fn handle_send_input(app: &mut App, key: KeyEvent) -> Result<bool> {
             _ => {}
         },
         SendInputMode::EditingAmount => match key.code {
-            KeyCode::Char(c) if c.is_digit(10) || c == '.' => {
+            KeyCode::Char(c) if c.is_ascii_digit() || c == '.' => {
                 app.send_state.amount.push(c);
             }
             KeyCode::Backspace => {
@@ -407,7 +408,7 @@ fn ui(f: &mut Frame, app: &App) {
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, menu_chunks[0]);
 
-    let menu_items = vec![
+    let menu_items = [
         "Home",
         "Wallet",
         "Send",
@@ -435,11 +436,11 @@ fn ui(f: &mut Frame, app: &App) {
 
     let content = match app.state {
         AppState::Home => render_home(),
-        AppState::Wallet => render_wallet(&app),
-        AppState::Send => render_send(&app),
-        AppState::Receive => render_receive(&app),
+        AppState::Wallet => render_wallet(app),
+        AppState::Send => render_send(app),
+        AppState::Receive => render_receive(app),
         AppState::Transactions => render_transactions(),
-        AppState::Settings => render_settings(&app),
+        AppState::Settings => render_settings(app),
     };
     f.render_widget(content, chunks[1]);
 }
@@ -561,7 +562,7 @@ fn render_receive(app: &App) -> Paragraph<'static> {
     ];
 
     // Generate QR code
-    match QrCode::new(&app.wallet.address.to_string()) {
+    match QrCode::new(app.wallet.address.to_string()) {
         Ok(code) => {
             let qr = code
                 .render::<unicode::Dense1x2>()
