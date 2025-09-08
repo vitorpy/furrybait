@@ -1,0 +1,45 @@
+[package]
+name = "solace"
+version = "0.1.0"
+edition = "2021"
+authors = ["vitorpy"]
+description = "A Solana wallet with a terminal user interface (TUI)"
+repository = "https://github.com/vitorpy/solace"
+homepage = "https://github.com/vitorpy/solace"
+documentation = "https://docs.rs/solace"
+readme = "README.md"
+keywords = ["solana", "wallet", "tui", "terminal", "blockchain"]
+categories = ["command-line-utilities", "cryptography::cryptocurrencies"]
+license = "GPL-3.0-or-later"
+exclude = [".github/*", ".gitignore"]
+
+[dependencies]
+# Solana libraries
+solana-sdk = "2.1"
+solana-client = "2.1"
+solana-transaction-status = "2.1"
+solana-account-decoder = "2.1"
+spl-token = "7.0"
+spl-associated-token-account = "6.0"
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Async runtime
+tokio = { version = "1.42", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# QR Code
+qrcode = "0.13"
+
+# Other utilities
+anyhow = "1.0"
+thiserror = "2.0"
+dirs = "5.0"
